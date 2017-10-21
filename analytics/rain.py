@@ -1,12 +1,21 @@
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-from imblearn.under_sampling import RandomUnderSampler
+import pprint
 from collections import Counter
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from imblearn.under_sampling import RandomUnderSampler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, average_precision_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from utils import plot_confusion_matrix, plot_precision_recall_thresholds
 
 
 def main():
-    data = pd.read_csv('../data/creditcard.csv')
+    data = load_data()
 
     scaler = StandardScaler()
     data['amount_z'] = scaler.fit_transform(data['Amount'].reshape(-1, 1))
@@ -15,14 +24,102 @@ def main():
     print(data.head())
 
     print(data.describe())
-    X = data.drop(['Class'], axis=1)
-    y = data['Class']
+    X, y = get_X_y(data)
 
     # sampling
 
 
     # x_undersample, y_undersample  = generate_balanced_sample_manual(data)
     x_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+
+
+def get_X_y(data):
+    X = data.drop(['Class'], axis=1)
+    y = data['Class']
+    return X, y
+
+
+def load_data():
+    data = pd.read_csv('../data/creditcard.csv')
+    return data
+
+
+def main_pipeline_proba():
+    pipe = Pipeline([
+        ('scale', StandardScaler()),
+        ('classify', LogisticRegression(C=0.01, penalty='l1'))
+    ])
+
+    data = load_data()
+    X, y = get_X_y(data)
+
+    # TODO: move this into the pipeline
+    X_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+
+    pipe.fit(X_undersample, y_undersample)
+
+    # predict on source data
+    y_pred_proba = pipe.predict_proba(X)
+
+    y_pred_proba_1s = [x[1] for x in y_pred_proba]
+
+    average_precision = average_precision_score(y, y_pred_proba_1s)
+
+    print('Average precision-recall score: {0:0.2f}'.format(
+        average_precision))
+
+    plot_precision_recall_thresholds(y, y_pred_proba)
+
+    # precision, recall, thresholds = precision_recall_curve(y, y_pred_proba_1s)
+    # plot_precision_recall(precision, recall, average_precision)
+
+    plt.show()
+
+
+def main_pipeline():
+    pp = pprint.PrettyPrinter(indent=4)
+
+    pipe = Pipeline([
+        ('scale', StandardScaler()),
+        # ('classify', LinearSVC())
+        ('classify', LogisticRegression())
+    ])
+
+    data = load_data()
+    X, y = get_X_y(data)
+
+    # TODO: move this into the pipeline
+    X_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+
+    pipe.fit(X_undersample, y_undersample)
+
+    # predict on source data
+    y_pred = pipe.predict(X)
+
+    # Compute confusion matrix
+    cnf_matrix = confusion_matrix(y, y_pred)
+    np.set_printoptions(precision=2)
+
+    print("Recall metric in the testing dataset: ", cnf_matrix[1, 1] / (cnf_matrix[1, 0] + cnf_matrix[1, 1]))
+
+    # Plot non-normalized confusion matrix
+    class_names = [0, 1]
+    plt.figure()
+    plot_confusion_matrix(cnf_matrix
+                          , classes=class_names
+                          , title='Confusion matrix')
+    plt.show()
+    print('plt.show')
+
+    # C_OPTIONS = [1, 10, 100, 1000]
+    #
+    # param_grid = [{
+    #     'classify__C': C_OPTIONS
+    # }]
+    grid = GridSearchCV(pipe, cv=4, n_jobs=1, param_grid=param_grid)
+    # grid.fit(X_undersample, y_undersample)
+    #
+    # pp.pprint(grid.cv_results_)
 
 
 def generate_balanced_sample_rus(X: pd.DataFrame, y: pd.Series):
@@ -57,4 +154,5 @@ def generate_balanced_sample_manual(data: pd.DataFrame):
 
 
 if __name__ == '__main__':
-    main()
+    # main_pipeline()
+    main_pipeline_proba()
