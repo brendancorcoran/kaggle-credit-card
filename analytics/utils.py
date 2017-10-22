@@ -1,9 +1,14 @@
 import itertools
+from collections import Counter
 from itertools import cycle
 
+import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.under_sampling import ClusterCentroids, RandomUnderSampler
 from sklearn.metrics import precision_recall_curve
+from sklearn.model_selection import train_test_split
 
 
 def plot_confusion_matrix(cm, classes,
@@ -74,3 +79,63 @@ def plot_precision_recall_thresholds(y, y_pred, thresholds=[0.1, 0.2, 0.3, 0.4, 
         plt.xlim([0.0, 1.0])
         plt.title('Precision-Recall example')
         plt.legend(loc="lower left")
+
+
+def generate_undersample_km_rus(X: pd.DataFrame, y: pd.Series):
+    rus = ClusterCentroids(random_state=0)
+    X_resampled, y_resampled = rus.fit_sample(X, y)
+    print(sorted(Counter(y_resampled).items()))
+    return X_resampled, y_resampled
+
+
+def generate_undersample_rus(X: pd.DataFrame, y: pd.Series):
+    rus = RandomUnderSampler(random_state=0)
+    X_resampled, y_resampled = rus.fit_sample(X, y)
+    print(sorted(Counter(y_resampled).items()))
+    return X_resampled, y_resampled
+
+
+def generate_oversample_rus(X: pd.DataFrame, y: pd.Series):
+    rus = RandomOverSampler(random_state=0)
+    X_resampled, y_resampled = rus.fit_sample(X, y)
+    print(sorted(Counter(y_resampled).items()))
+    return X_resampled, y_resampled
+
+
+def generate_oversample_smote(X: pd.DataFrame, y: pd.Series):
+    X_resampled, y_resampled = SMOTE().fit_sample(X, y)
+    print(sorted(Counter(y_resampled).items()))
+    return X_resampled, y_resampled
+
+
+def generate_balanced_sample_manual(data: pd.DataFrame):
+    # Number of data points in the minority class
+    number_records_fraud = len(data[data.Class == 1])
+    fraud_indices = np.array(data[data.Class == 1].index)
+    # Picking the indices of the normal classes
+    normal_indices = data[data.Class == 0].index
+    # Out of the indices we picked, randomly select "x" number (number_records_fraud)
+    random_normal_indices = np.random.choice(normal_indices, number_records_fraud, replace=False)
+    random_normal_indices = np.array(random_normal_indices)
+    # Appending the 2 indices
+    under_sample_indices = np.concatenate([fraud_indices, random_normal_indices])
+    # Under sample dataset
+    under_sample_data = data.iloc[under_sample_indices, :]
+    x_undersample = under_sample_data.ix[:, under_sample_data.columns != 'Class']
+    y_undersample = under_sample_data.ix[:, under_sample_data.columns == 'Class']
+    # Showing ratio
+    print("Percentage of normal transactions: ",
+          len(under_sample_data[under_sample_data.Class == 0]) / len(under_sample_data))
+    print("Percentage of fraud transactions: ",
+          len(under_sample_data[under_sample_data.Class == 1]) / len(under_sample_data))
+    print("Total number of transactions in resampled data: ", len(under_sample_data))
+    return x_undersample, y_undersample
+
+
+def generate_train_test_split(X, y, test_size=0.5):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=0)
+
+    print("Number transactions train dataset: ", len(X_train))
+    print("Number transactions test dataset: ", len(X_test))
+    print("Total number of transactions: ", len(X_train) + len(X_test))
+    return X_train, X_test, y_train, y_test

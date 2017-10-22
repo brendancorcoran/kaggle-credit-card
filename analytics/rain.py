@@ -1,17 +1,17 @@
 import pprint
-from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from imblearn.under_sampling import RandomUnderSampler
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, average_precision_score
+from sklearn.metrics import confusion_matrix, average_precision_score, classification_report
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from utils import plot_confusion_matrix, plot_precision_recall_thresholds
+from utils import plot_confusion_matrix, plot_precision_recall_thresholds, generate_undersample_rus, \
+    generate_oversample_smote, generate_train_test_split
 
 
 def main():
@@ -30,11 +30,11 @@ def main():
 
 
     # x_undersample, y_undersample  = generate_balanced_sample_manual(data)
-    x_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+    x_undersample, y_undersample = generate_undersample_rus(X, y)
 
 
 def get_X_y(data):
-    X = data.drop(['Class'], axis=1)
+    X = data.drop(['Time', 'Class'], axis=1)
     y = data['Class']
     return X, y
 
@@ -44,21 +44,122 @@ def load_data():
     return data
 
 
-def main_pipeline_proba():
+def main_pipeline_proba_grid_rf():
     pipe = Pipeline([
         ('scale', StandardScaler()),
-        ('classify', LogisticRegression(C=0.01, penalty='l1'))
+        # ('rf', RandomForestClassifier(random_state=0))
+        ('rf', RandomForestClassifier(criterion='gini', bootstrap=False, random_state=0))
+        # optimised from previous runs
     ])
 
     data = load_data()
     X, y = get_X_y(data)
 
-    # TODO: move this into the pipeline
-    X_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+    # X_sample, y_sample = generate_undersample_rus(X, y)
+    # X_sample, y_sample = generate_undersample_km_rus(X, y)
+    X_sample, y_sample = generate_oversample_smote(X, y)
 
-    pipe.fit(X_undersample, y_undersample)
+    # generate test/train for the sample equalized
+    X_train, X_test, y_train, y_test = generate_train_test_split(X_sample, y_sample, test_size=0.8)
 
-    # predict on source data
+    # gridsearch ov c param space
+    parameters = {'rf__max_depth': list(range(1, 11, 2))
+                  # 'rf__bootstrap': [True, False],
+                  # 'rf__criterion': ['gini', 'entropy']
+                  }
+    # clf = GridSearchCV(pipe, parameters, scoring='average_precision')
+    clf = GridSearchCV(pipe, parameters, scoring='f1')
+    clf.fit(X_train, y_train)
+
+    print('Best params found on training set:')
+    print(clf.best_params_)
+    print('...')
+    # pp.pprint(clf.cv_results_)
+    print('...')
+
+    # predict on the original dataset (i.e. unbalanced)
+    # TODO: apply this to the train_test_split wrapping
+    y_pred_proba = clf.predict_proba(X)
+
+    y_pred_proba_1s = [x[1] for x in y_pred_proba]
+
+    average_precision = average_precision_score(y, y_pred_proba_1s)
+
+    print('Average precision-recall score: {0:0.2f}'.format(
+        average_precision))
+
+    print('Classification report for each class:')
+    y_pred = clf.predict(X)
+    print(classification_report(y, y_pred))
+
+    # plot...
+    plot_precision_recall_thresholds(y, y_pred_proba)
+    plt.show()
+
+
+def main_pipeline_proba_grid():
+    pp = pprint.PrettyPrinter(indent=4)
+
+    pipe = Pipeline([
+        ('scale', StandardScaler()),
+        ('classify', LogisticRegression(penalty='l1'))
+    ])
+
+    data = load_data()
+    X, y = get_X_y(data)
+
+    X_undersample, y_undersample = generate_undersample_rus(X, y)
+
+    # gridsearch ov c param space
+    parameters = {'classify__C': [0.01, 0.1, 1]}
+    clf = GridSearchCV(pipe, parameters, scoring='average_precision')
+    # clf.fit(X_undersample, y_undersample)
+    clf.fit(X, y)
+
+    print('Best params found on training set:')
+    print(clf.best_params_)
+    print('...')
+    # pp.pprint(clf.cv_results_)
+    print('...')
+
+    # predict on the original dataset (i.e. unbalanced)
+    y_pred_proba = clf.predict_proba(X)
+
+    y_pred_proba_1s = [x[1] for x in y_pred_proba]
+
+    average_precision = average_precision_score(y, y_pred_proba_1s)
+
+    print('Average precision-recall score: {0:0.2f}'.format(
+        average_precision))
+
+    print('Classification report for each class:')
+    y_pred = clf.predict(X)
+    print(classification_report(y, y_pred))
+
+    # plot...
+    plot_precision_recall_thresholds(y, y_pred_proba)
+    plt.show()
+
+
+def main_pipeline_proba():
+    pipe = Pipeline([
+        ('scale', StandardScaler()),
+        # ('classify', LogisticRegression(C=0.01, penalty='l1'))
+        ('rf', RandomForestClassifier(max_depth=5, random_state=0))
+    ])
+
+    data = load_data()
+    X, y = get_X_y(data)
+
+    X_undersample, y_undersample = generate_undersample_rus(X, y)
+    # X_undersample, y_undersample = generate_oversample_rus(X, y)
+
+    # generate test/train for the sample equalized
+    X_train, X_test, y_train, y_test = generate_train_test_split(X_undersample, y_undersample)
+
+    pipe.fit(X_train, y_train)
+
+    # predict on the original dataset (unbalanced)
     y_pred_proba = pipe.predict_proba(X)
 
     y_pred_proba_1s = [x[1] for x in y_pred_proba]
@@ -82,14 +183,13 @@ def main_pipeline():
     pipe = Pipeline([
         ('scale', StandardScaler()),
         # ('classify', LinearSVC())
-        ('classify', LogisticRegression())
+        ('classify', LogisticRegression(C=0.01, penalty='l1'))
     ])
 
     data = load_data()
     X, y = get_X_y(data)
 
-    # TODO: move this into the pipeline
-    X_undersample, y_undersample = generate_balanced_sample_rus(X, y)
+    X_undersample, y_undersample = generate_undersample_rus(X, y)
 
     pipe.fit(X_undersample, y_undersample)
 
@@ -116,43 +216,17 @@ def main_pipeline():
     # param_grid = [{
     #     'classify__C': C_OPTIONS
     # }]
-    grid = GridSearchCV(pipe, cv=4, n_jobs=1, param_grid=param_grid)
+    # grid = GridSearchCV(pipe, cv=4, n_jobs=1, param_grid=param_grid)
     # grid.fit(X_undersample, y_undersample)
     #
     # pp.pprint(grid.cv_results_)
 
 
-def generate_balanced_sample_rus(X: pd.DataFrame, y: pd.Series):
-    rus = RandomUnderSampler(random_state=0)
-    X_resampled, y_resampled = rus.fit_sample(X, y)
-    print(sorted(Counter(y_resampled).items()))
-    return X_resampled, y_resampled
 
-
-def generate_balanced_sample_manual(data: pd.DataFrame):
-    # Number of data points in the minority class
-    number_records_fraud = len(data[data.Class == 1])
-    fraud_indices = np.array(data[data.Class == 1].index)
-    # Picking the indices of the normal classes
-    normal_indices = data[data.Class == 0].index
-    # Out of the indices we picked, randomly select "x" number (number_records_fraud)
-    random_normal_indices = np.random.choice(normal_indices, number_records_fraud, replace=False)
-    random_normal_indices = np.array(random_normal_indices)
-    # Appending the 2 indices
-    under_sample_indices = np.concatenate([fraud_indices, random_normal_indices])
-    # Under sample dataset
-    under_sample_data = data.iloc[under_sample_indices, :]
-    x_undersample = under_sample_data.ix[:, under_sample_data.columns != 'Class']
-    y_undersample = under_sample_data.ix[:, under_sample_data.columns == 'Class']
-    # Showing ratio
-    print("Percentage of normal transactions: ",
-          len(under_sample_data[under_sample_data.Class == 0]) / len(under_sample_data))
-    print("Percentage of fraud transactions: ",
-          len(under_sample_data[under_sample_data.Class == 1]) / len(under_sample_data))
-    print("Total number of transactions in resampled data: ", len(under_sample_data))
-    return x_undersample, y_undersample
 
 
 if __name__ == '__main__':
     # main_pipeline()
-    main_pipeline_proba()
+    # main_pipeline_proba()
+    # main_pipeline_proba_grid()
+    main_pipeline_proba_grid_rf()
