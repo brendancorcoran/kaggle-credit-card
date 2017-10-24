@@ -55,21 +55,24 @@ def main_pipeline_proba_grid_rf():
     data = load_data()
     X, y = get_X_y(data)
 
+    X_train, X_test, y_train, y_test = generate_train_test_split(X, y, test_size=0.5)
+
+
     # X_sample, y_sample = generate_undersample_rus(X, y)
     # X_sample, y_sample = generate_undersample_km_rus(X, y)
-    X_sample, y_sample = generate_oversample_smote(X, y)
+    X_sample, y_sample = generate_oversample_smote(X_train, y_train)
 
     # generate test/train for the sample equalized
-    X_train, X_test, y_train, y_test = generate_train_test_split(X_sample, y_sample, test_size=0.8)
+    # X_train, X_test, y_train, y_test = generate_train_test_split(X_sample, y_sample, test_size=0.8)
 
     # gridsearch ov c param space
-    parameters = {'rf__max_depth': list(range(1, 11, 2))
+    parameters = {'rf__max_depth': list(range(1, 15, 2))
                   # 'rf__bootstrap': [True, False],
                   # 'rf__criterion': ['gini', 'entropy']
                   }
     # clf = GridSearchCV(pipe, parameters, scoring='average_precision')
     clf = GridSearchCV(pipe, parameters, scoring='f1')
-    clf.fit(X_train, y_train)
+    clf.fit(X_sample, y_sample)
 
     print('Best params found on training set:')
     print(clf.best_params_)
@@ -78,22 +81,21 @@ def main_pipeline_proba_grid_rf():
     print('...')
 
     # predict on the original dataset (i.e. unbalanced)
-    # TODO: apply this to the train_test_split wrapping
-    y_pred_proba = clf.predict_proba(X)
+    y_pred_proba = clf.predict_proba(X_test)
 
     y_pred_proba_1s = [x[1] for x in y_pred_proba]
 
-    average_precision = average_precision_score(y, y_pred_proba_1s)
+    average_precision = average_precision_score(y_test, y_pred_proba_1s)
 
     print('Average precision-recall score: {0:0.2f}'.format(
         average_precision))
 
     print('Classification report for each class:')
-    y_pred = clf.predict(X)
-    print(classification_report(y, y_pred))
+    y_pred = clf.predict(X_test)
+    print(classification_report(y_test, y_pred))
 
     # plot...
-    plot_precision_recall_thresholds(y, y_pred_proba)
+    plot_precision_recall_thresholds(y_test, y_pred_proba)
     plt.show()
 
 
